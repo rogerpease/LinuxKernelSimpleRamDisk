@@ -42,9 +42,77 @@ static struct my_block_dev {
 	size_t size;
 } g_dev;
 
+static void copy_to_brd(void * mem_start, unsigned int sector,unsigned int  len)
+{ pr_info("Write to %p %d %d\n",mem_start,sector,len); }
+
+static void copy_from_brd(void * mem_start, unsigned int sector,unsigned int len)
+{ pr_info("Read to %p %d %d\n",mem_start,sector,len); }
+
+static int copy_to_brd_setup(unsigned int sector,unsigned int  len,unsigned int  gfp)
+{ pr_info("Setup %d %d %x",sector,len,gfp); return 0; }
+
+static int brd_do_bvec(struct page *page,
+			unsigned int len, unsigned int off, blk_opf_t opf,
+			sector_t sector)
+{
+	void *mem;
+	int err = 0;
+
+	if (op_is_write(opf)) {
+		/*
+		 * Must use NOIO because we don't want to recurse back into the
+		 * block or filesystem layers from page reclaim.
+		 */
+		gfp_t gfp = opf & REQ_NOWAIT ? GFP_NOWAIT : GFP_NOIO;
+
+		err = copy_to_brd_setup(sector, len, gfp);
+		if (err)
+			goto out;
+	}
+
+	mem = kmap_atomic(page);
+	if (!op_is_write(opf)) {
+		copy_from_brd(mem + off, sector, len);
+		flush_dcache_page(page);
+	} else {
+		flush_dcache_page(page);
+		copy_to_brd(mem + off, sector, len);
+	}
+	kunmap_atomic(mem);
+
+out:
+	return err;
+}
+
 static void my_submit_bio(struct bio *bio)
 {
     pr_info("My submit bio");
+    struct brd_device *brd = bio->bi_bdev->bd_disk->private_data;
+    sector_t sector = bio->bi_iter.bi_sector;
+    struct bio_vec bvec;
+    struct bvec_iter iter;
+
+    bio_for_each_segment(bvec, bio, iter) {
+	unsigned int len = bvec.bv_len;
+	int err;
+
+	/* Don't support un-aligned buffer */
+	WARN_ON_ONCE((bvec.bv_offset & (SECTOR_SIZE - 1)) ||
+			(len & (SECTOR_SIZE - 1)));
+
+	err = brd_do_bvec(bvec.bv_page, len, bvec.bv_offset,
+			  bio->bi_opf, sector);
+	if (err) {
+		if (err == -ENOMEM && bio->bi_opf & REQ_NOWAIT) {
+			bio_wouldblock_error(bio);
+			return;
+		}
+		bio_io_error(bio);
+		return;
+	}
+	sector += len >> SECTOR_SHIFT;
+    }
+    bio_endio(bio);
 }
 
 static const struct block_device_operations my_block_ops = {
@@ -54,6 +122,9 @@ static const struct block_device_operations my_block_ops = {
 
 static int create_block_device(struct my_block_dev *dev)
 {
+
+        struct gendisk *disk; 
+	int result; 
 	int err;
  	pr_info("create_block_device1 called"); 
 
@@ -66,16 +137,14 @@ static int create_block_device(struct my_block_dev *dev)
 		goto out_vmalloc;
 	}
 
-        struct gendisk *disk; 
-
-	disk = blk_alloc_disk(NUMA_NO_NODE);
 
         if (IS_ERR(disk)) { 
-             pr_err("DISK ALLOCATION ERROR"); 
-             return -1; 
+		pr_err("DISK ALLOCATION ERROR"); 
+		return -1; 
         }
         pr_info("made disk");
 
+	disk = blk_alloc_disk(NUMA_NO_NODE);
 
 	disk->major = MY_BLOCK_MAJOR;
 	disk->first_minor = 0;
@@ -85,14 +154,15 @@ static int create_block_device(struct my_block_dev *dev)
 	strscpy(disk->disk_name, DISK_NAME,strlen(DISK_NAME));
 	set_capacity(disk, NR_SECTORS*2);
 
+        pr_info("disk queue setup start");
         blk_queue_physical_block_size(disk->queue, 4096u);
 
 //	blk_queue_flag_set(QUEUE_FLAG_NONROT, disk->queue);
 //	blk_queue_flag_set(QUEUE_FLAG_SYNCHRONOUS, disk->queue);
 //	blk_queue_flag_set(QUEUE_FLAG_NOWAIT, disk->queue);
+        pr_info("disk queue setup end");
         
         pr_info("Adding Disk"); 
-	int result; 
 	result = add_disk(disk);
         if (result) 
         {
