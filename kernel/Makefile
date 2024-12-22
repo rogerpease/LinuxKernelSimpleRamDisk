@@ -1,8 +1,6 @@
-obj-m += ram-disk-bio.o
+obj-m += ram-disk-bio.o ram-disk-queue.o
 
 
-# 
-#KERNEL_DIR=/home/rpease/Linux6
 KERNEL_DIR=/lib/modules/`uname -r`/build
 
 
@@ -12,6 +10,7 @@ all:
 	ARCH=x86_64 make -C $(KERNEL_DIR) M=$(shell pwd) modules
 	@echo
 	@echo "     % ln -s ram-disk-bio.ko ram-disk.ko   (to use the bio-only version)  "
+	@echo "     % ln -s ram-disk-queue.ko ram-disk.ko   (to use the queue version)  "
 	@echo
 
 clean:
