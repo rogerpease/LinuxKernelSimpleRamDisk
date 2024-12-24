@@ -1,6 +1,6 @@
 /*
  * SO2 - Block device driver (#8)
- * Test suite for exercise #3 (RAM Disk)
+ * Test suite for exercise #3 (RAM Disk) Updated by RDP 
  */
 
 #include <stdio.h>
@@ -14,9 +14,6 @@
 #include <linux/ioctl.h>
 #include <sys/ioctl.h>
 
-
-#define WR_VALUE 'w'
-#define RD_VALUE 'r'
 
 #define NR_SECTORS	128
 #define SECTOR_SIZE	512
@@ -38,7 +35,7 @@ static void test_sectors()
 	int i,sector, fd;
 
 	for (i = 0; i < sizeof(buffer); i++)
-	     buffer[i] = (i-i%SECTOR_SIZE)/SECTOR_SIZE; 
+	     buffer[i] = (rand()*SECTOR_SIZE); 
         
 	fd = open(DEVICE_NAME, O_RDWR);
  
@@ -68,11 +65,9 @@ static void test_sectors()
 int main(void)
 {
 
-	printf("insmod ../kernel/" MODULE_NAME ".ko\n");
-	if (system("insmod " MODULE_NAME ".ko\n")) {
-		fprintf(stderr, "insmod failed\n");
-		exit(EXIT_FAILURE);
-	}
+	printf("Program assumes you have run\n");
+        printf("   insmod ram-disk-bio.ok            -or-\n");
+        printf("   insmod ram-disk-queue.ko \n");
 
 	sleep(1);
 
@@ -85,8 +80,7 @@ int main(void)
 
 
 	sleep(1);
-	printf("rmmod " MODULE_NAME "\n");
-	system("rmmod " MODULE_NAME "\n");
+	printf("Be sure to run rmmod on the same module.\n");
 
 	return 0;
 }
