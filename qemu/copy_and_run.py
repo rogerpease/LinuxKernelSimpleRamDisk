@@ -11,12 +11,19 @@ from subprocess import Popen,PIPE
 import tempfile
 import time
 
+def check_root(): 
+   if os.geteuid() != 0:
+       print("Must be root") 
+       exit(1) 
+
 def exec_local(command):
     os.system(command)
 
 YOCTO_IMAGE = "core-image-minimal-qemux86.ext4"
+LINUXIMAGE="bzImage16_Linux6.8.0-rc7"
+
 def get_images():
-     for image in [YOCTO_IMAGE,"disk1.img","disk2.img"]:
+     for image in [YOCTO_IMAGE,"disk1.img","disk2.img",LINUXIMAGE]:
          if not os.path.exists(image):
             exec_local("wget https://rogerpease.com/LinuxKernelSimpleRamDisk/"+image)
          else:
@@ -34,7 +41,7 @@ def update_image():
 def run_qemu():
 
    print("Login as root (no password) and run ./ram-disk-test")
-   Popen(['qemu-system-x86_64','-kernel','bzImage_l6', \
+   Popen(['qemu-system-x86_64','-kernel',LINUXIMAGE, \
         '-device', 'virtio-serial',                 \
         '-chardev','pty,id=virtiocon0','-device','virtconsole,chardev=virtiocon0', \
         '-netdev', 'tap,id=lkt-tap0,ifname=lkt-tap0,script=no,downscript=no', \
@@ -48,6 +55,7 @@ def run_qemu():
         '--append','root=/dev/vda loglevel=15 console=hvc0 pci=noacpi nokaslr'],
         )
 
+check_root()
 get_images()
 update_image() 
 run_qemu()
