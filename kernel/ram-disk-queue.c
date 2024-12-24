@@ -42,9 +42,6 @@ struct my_block_dev {
 
 static struct my_block_dev *g_dev;
 
-/* Technically not necessary */
-static int my_block_open(struct gendisk *gd, fmode_t mode) { return 0; }
-static void my_block_release(struct gendisk *gd) { return; }
 
 /*
 
