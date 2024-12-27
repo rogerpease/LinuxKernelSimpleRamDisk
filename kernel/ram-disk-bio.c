@@ -20,7 +20,6 @@ MODULE_DESCRIPTION("Simple RAM Disk");
 MODULE_AUTHOR("SO2 modified by RDP for Kernel 6");
 MODULE_LICENSE("GPL");
 
-
 #define KERN_LOG_LEVEL		KERN_ALERT
 
 #define MY_BLOCK_MAJOR		240
@@ -48,10 +47,10 @@ static void my_block_release(struct gendisk *gd) { return; }
 /*
 
    If you put in pr_ statements to debug reads and writes, don't be surprised to see the reads happening first. 
-   There is a higher level caching layer. 
+   There is a higher level caching layer which is "fetching" (reading) then writing. 
   
    So if your user program is doing write then a read, 
-   that layer is doing a read first to acquire the original device data, 
+   that layer is doing a read first to acquire the original device data (with a read), 
    then a write of the changed/'dirty' areas, then not doing the final read 
    because it already has the data cached. 
 
@@ -66,13 +65,11 @@ static void my_block_transfer(
 {
 	unsigned long sectorstart = sector * KERNEL_SECTOR_SIZE;
 
-	/* check for read/write beyond end of block device */
 	if ((sectorstart + len) > dev->size)
         {
 	   return;
         }
 
-	/* TODO 3: read/write to dev buffer depending on dir */
         if (dir == WRITE) // write  
         { 
            memcpy(dev->data + sectorstart , buffer, len);
@@ -104,11 +101,12 @@ static void my_block_transfer(
 // matter. 
 //
 // For platter drives, it makes sense to reorder the requests 
-// (such as for an elevator algorithm). So the driver will 
+// (such as for an elevator algorithm). Elevators select their next floors based on the elevator's 
+// position and direction, not the order in which the floor requests came in. So the driver will 
 // configure (or provide) a queue so it can intercept the requests and 
 // reorder them. 
 //
-// I'll do another one of (or expand) this using request queues. 
+// See ram-disk-queue for a queue based example. 
 //
 // 
 
@@ -124,7 +122,7 @@ static void my_submit_bio(struct bio * bio)
 	   unsigned int len = bvec.bv_len;
            void * mem = kmap_atomic(bvec.bv_page); 
                     // 'Pin' the user-space page we are reading from/writing to and get the pointer. 
-	   unsigned int offset = bvec.bv_offset;
+	   unsigned int offset = bvec.bv_offset; // Offset is page offset. 
            sector_t sector     = iter.bi_sector; 
            unsigned char dir   = bio_data_dir(bio); 
 
@@ -146,7 +144,16 @@ static const struct block_device_operations my_block_ops = {
       .devnode=NULL,
 };
 
+static void delete_block_device(struct my_block_dev *dev)
+{
+	if (dev->gd) {
+		del_gendisk(dev->gd);
+		put_disk(dev->gd);
+	}
 
+	if (dev->data)
+		vfree(dev->data);
+}
 
 static int create_block_device(struct my_block_dev *dev)
 {
@@ -158,7 +165,7 @@ static int create_block_device(struct my_block_dev *dev)
 	if (dev->data == NULL) {
 		pr_err("vmalloc: out of memory\n");
 		err = -ENOMEM;
-		goto out_vmalloc;
+                goto out_vmalloc;
 	}
 
 
@@ -167,6 +174,7 @@ static int create_block_device(struct my_block_dev *dev)
 	if (!dev->gd) {
 		pr_err("alloc_disk: failure\n");
 		err = -ENOMEM;
+                goto out_alloc_dev_data;
 	}
 
 	dev->gd->major = MY_BLOCK_MAJOR;
@@ -184,27 +192,18 @@ static int create_block_device(struct my_block_dev *dev)
 	err = add_disk(dev->gd);
         if (err < 0)
         {
-           goto out_blk_init; 
+            goto out_blk_alloc; 
         } 
 	set_capacity(dev->gd, NR_SECTORS);
 
 	return 0;
 
-out_blk_init:
+out_blk_alloc:
+        delete_block_device(dev); 
+out_alloc_dev_data:
 	vfree(dev->data);
 out_vmalloc:
 	return err;
-}
-
-static void delete_block_device(struct my_block_dev *dev)
-{
-	if (dev->gd) {
-		del_gendisk(dev->gd);
-		put_disk(dev->gd);
-	}
-
-	if (dev->data)
-		vfree(dev->data);
 }
 
 
@@ -222,25 +221,30 @@ static int __init my_block_init(void)
         err = register_blkdev(MY_BLOCK_MAJOR, MY_BLKDEV_NAME);
         if (err < 0) {
              pr_err("unable to register mybdev block device\n");
-             return -EBUSY;
+             err = -EBUSY;
+             goto free_gdev;
         }
 
 	/* TODO 2: create block device using create_block_device */
 	err = create_block_device(g_dev); 
         if (err < 0) {
              pr_err("unable to register mybdev block device\n");
-             goto out;
+             goto unregister;
         }
 
 	return 0;
 
-out:
-        delete_block_device(g_dev);
+unregister:
+	unregister_blkdev(MY_BLOCK_MAJOR, MY_BLKDEV_NAME);
+free_gdev:
+        vfree(g_dev);
 	return err;
 }
 
 static void __exit my_block_exit(void)
 {
+        delete_block_device(g_dev);
+        vfree(g_dev); 
 	unregister_blkdev(MY_BLOCK_MAJOR, MY_BLKDEV_NAME);
 
 }

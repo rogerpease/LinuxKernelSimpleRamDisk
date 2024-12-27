@@ -168,7 +168,7 @@ static int create_block_device(struct my_block_dev *dev)
         blk_mq_alloc_tag_set(&g_dev->tag_set);
         if (err < 0) {
 		err = -ENOMEM;
-		goto out_blk_init;
+		goto out_dev_data;
         } 
 
 	/* Initialize the gendisk structure using the queue we built. */
@@ -178,6 +178,7 @@ static int create_block_device(struct my_block_dev *dev)
 	if (!dev->gd) {
 		pr_err("alloc_disk: failure\n");
 		err = -ENOMEM;
+		goto out_tag_set;
 	}
 
 	dev->gd->major = MY_BLOCK_MAJOR;
@@ -196,13 +197,17 @@ static int create_block_device(struct my_block_dev *dev)
 
         if (err < 0)
         {
-           goto out_blk_init; 
+           goto out_disk; 
         } 
 	set_capacity(dev->gd, NR_SECTORS);
 
 	return 0;
 
-out_blk_init:
+out_disk: 
+        put_disk(g_dev->gd); 
+out_tag_set: 
+        blk_mq_free_tag_set(&g_dev->tag_set);
+out_dev_data:
 	vfree(dev->data);
 out_vmalloc:
 	return err;
@@ -254,11 +259,18 @@ out:
 	return err;
 }
 
+
 static void __exit my_block_exit(void)
 {
+        delete_block_device(g_dev); 
+        put_disk(g_dev->gd); 
+        blk_mq_free_tag_set(&g_dev->tag_set);
+	vfree(g_dev->data);
+	vfree(g_dev);
 	unregister_blkdev(MY_BLOCK_MAJOR, MY_BLKDEV_NAME);
-
+	return;
 }
+
 
 module_init(my_block_init);
 module_exit(my_block_exit);

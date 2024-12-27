@@ -40,7 +40,8 @@ def update_image():
 
 def run_qemu():
 
-   print("Login as root (no password) and run ./ram-disk-test")
+   print("Login as root (no password), insmod one of the .ko modules and run ./ram-disk-test. ")
+   print("rmmod the module once done and you can run the other if you want.")
    Popen(['qemu-system-x86_64','-kernel',LINUXIMAGE, \
         '-device', 'virtio-serial',                 \
         '-chardev','pty,id=virtiocon0','-device','virtconsole,chardev=virtiocon0', \
